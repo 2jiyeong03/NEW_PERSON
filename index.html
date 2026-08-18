@@ -187,6 +187,7 @@
   .app-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
   section { display: flex; flex-direction: column; gap: 10px; }
+  section[hidden] { display: none; }
 
   .section-title {
     font-size: 12px;
@@ -440,7 +441,7 @@
       </div>
     </div>
 
-    <div class="app-scroll">
+    <div class="app-scroll" id="appScroll">
       <section>
         <div class="hero-card">
           <p class="hero-headline" id="heroHeadline"></p>
@@ -469,6 +470,14 @@
           <span class="count" id="itemCount"></span>
         </div>
         <div class="item-list" id="itemList"></div>
+      </section>
+
+      <section id="discardSection" hidden>
+        <div class="section-title">
+          <span>폐기해야 할 식재료</span>
+          <span class="count" id="discardCount"></span>
+        </div>
+        <div class="item-list" id="discardList"></div>
       </section>
 
       <details class="history">
@@ -585,20 +594,50 @@
       });
     }
 
+    function itemRow(it, isOverdue) {
+      var diff = dDay(it.expiry);
+      return (
+        '<div class="item-row"><div class="info"><div class="name">' +
+        escapeHtml(it.name) +
+        '</div><div class="date">' +
+        formatDate(it.expiry) +
+        '</div></div><span class="badge ' +
+        dDayClass(diff) +
+        '">' +
+        dDayLabel(diff) +
+        '</span><button class="consume-btn' +
+        (isOverdue ? " discard" : "") +
+        '" data-consume="' +
+        it.id +
+        '">' +
+        (isOverdue ? "폐기 완료" : "소비 완료") +
+        "</button></div>"
+      );
+    }
+
     function render() {
       var sorted = sortedItems();
+      var fresh = sorted.filter(function (it) { return dDay(it.expiry) >= 0; });
+      var overdue = sorted.filter(function (it) { return dDay(it.expiry) < 0; });
+
       var heroHeadline = document.getElementById("heroHeadline");
       var heroList = document.getElementById("heroList");
       var itemList = document.getElementById("itemList");
       var itemCount = document.getElementById("itemCount");
+      var discardSection = document.getElementById("discardSection");
+      var discardList = document.getElementById("discardList");
+      var discardCount = document.getElementById("discardCount");
       var historyList = document.getElementById("historyList");
       var historyCount = document.getElementById("historyCount");
 
       if (sorted.length === 0) {
         heroHeadline.innerHTML = "등록된 식재료가 없어요. 첫 식재료를 등록해보세요!";
         heroList.innerHTML = "";
+      } else if (fresh.length === 0) {
+        heroHeadline.innerHTML = "지금 바로 드실 수 있는 식재료가 없어요. 폐기 목록을 확인해보세요.";
+        heroList.innerHTML = "";
       } else {
-        var top = sorted.slice(0, 3);
+        var top = fresh.slice(0, 3);
         var first = top[0];
         heroHeadline.innerHTML =
           "오늘은 <strong>" + escapeHtml(first.name) + "</strong>" + josaEul(first.name) + " 먼저 드세요!";
@@ -618,31 +657,29 @@
           .join("");
       }
 
-      itemCount.textContent = sorted.length + "개";
-      if (sorted.length === 0) {
-        itemList.innerHTML = '<p class="empty-note">냉장고가 비어 있어요.</p>';
+      itemCount.textContent = fresh.length + "개";
+      if (fresh.length === 0) {
+        itemList.innerHTML =
+          '<p class="empty-note">' +
+          (overdue.length > 0 ? "지금 소비 가능한 식재료가 없어요." : "냉장고가 비어 있어요.") +
+          "</p>";
       } else {
-        itemList.innerHTML = sorted
+        itemList.innerHTML = fresh
           .map(function (it) {
-            var diff = dDay(it.expiry);
-            var isOverdue = diff < 0;
-            return (
-              '<div class="item-row"><div class="info"><div class="name">' +
-              escapeHtml(it.name) +
-              '</div><div class="date">' +
-              formatDate(it.expiry) +
-              '</div></div><span class="badge ' +
-              dDayClass(diff) +
-              '">' +
-              dDayLabel(diff) +
-              '</span><button class="consume-btn' +
-              (isOverdue ? " discard" : "") +
-              '" data-consume="' +
-              it.id +
-              '">' +
-              (isOverdue ? "폐기 완료" : "소비 완료") +
-              "</button></div>"
-            );
+            return itemRow(it, false);
+          })
+          .join("");
+      }
+
+      if (overdue.length === 0) {
+        discardSection.hidden = true;
+        discardList.innerHTML = "";
+      } else {
+        discardSection.hidden = false;
+        discardCount.textContent = overdue.length + "개";
+        discardList.innerHTML = overdue
+          .map(function (it) {
+            return itemRow(it, true);
           })
           .join("");
       }
@@ -683,7 +720,7 @@
       form.elements["name"].focus();
     });
 
-    document.getElementById("itemList").addEventListener("click", function (e) {
+    document.getElementById("appScroll").addEventListener("click", function (e) {
       var btn = e.target.closest("[data-consume]");
       if (!btn) return;
       var id = btn.getAttribute("data-consume");
