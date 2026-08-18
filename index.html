@@ -280,6 +280,7 @@
   }
 
   .add-form input {
+    display: block;
     width: 100%;
     min-width: 0;
     max-width: 100%;
@@ -290,6 +291,12 @@
     padding: 9px 10px;
     font-size: 13.5px;
     color: var(--ink);
+  }
+
+  .add-form input[type="date"] {
+    -webkit-min-logical-width: 0px !important;
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   .add-form input:focus-visible,
