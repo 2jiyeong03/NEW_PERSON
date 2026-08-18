@@ -264,7 +264,23 @@
     flex-wrap: wrap;
   }
 
+  .add-form .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1 1 120px;
+    min-width: 100px;
+  }
+
+  .add-form .field span {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--ink-faint);
+  }
+
   .add-form input {
+    width: 100%;
     font-family: var(--font-body);
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -280,9 +296,6 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
-
-  .add-form input[name="name"] { flex: 1 1 120px; min-width: 100px; }
-  .add-form input[name="expiry"] { flex: 1 1 140px; }
 
   .add-form button {
     flex: 1 1 100%;
@@ -426,8 +439,14 @@
       <section>
         <div class="section-title">식재료 등록</div>
         <form class="add-form" id="addForm">
-          <input type="text" name="name" placeholder="식재료명 (예: 콩나물)" maxlength="20" required />
-          <input type="date" name="expiry" required />
+          <label class="field">
+            <span>식재료명</span>
+            <input type="text" name="name" placeholder="예: 콩나물" maxlength="20" required />
+          </label>
+          <label class="field">
+            <span>소비기한</span>
+            <input type="date" name="expiry" required />
+          </label>
           <button type="submit">냉장고에 등록</button>
         </form>
       </section>
