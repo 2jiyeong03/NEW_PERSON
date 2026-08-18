@@ -488,56 +488,13 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   (function () {
-    var todaySeed = new Date();
-    todaySeed.setHours(0, 0, 0, 0);
-
-    function isoPlusDays(base, days) {
-      var d = new Date(base);
-      d.setDate(d.getDate() + days);
-      return d.toISOString().slice(0, 10);
-    }
-
-    var state = {
-      items: [
-        { id: "seed-1", name: "콩나물", expiry: isoPlusDays(todaySeed, 1) },
-        { id: "seed-2", name: "소세지", expiry: isoPlusDays(todaySeed, 5) },
-        { id: "seed-3", name: "계란", expiry: isoPlusDays(todaySeed, 7) }
-      ],
-      history: []
-    };
-
-    var storageAvailable = true;
-    try {
-      var testKey = "__fridge_test__";
-      window.localStorage.setItem(testKey, "1");
-      window.localStorage.removeItem(testKey);
-    } catch (e) {
-      storageAvailable = false;
-    }
-
-    function loadState() {
-      if (!storageAvailable) return;
-      try {
-        var saved = window.localStorage.getItem("fridge_state_v1");
-        if (saved) {
-          var parsed = JSON.parse(saved);
-          if (parsed && Array.isArray(parsed.items) && Array.isArray(parsed.history)) {
-            state = parsed;
-          }
-        }
-      } catch (e) {}
-    }
-
-    function saveState() {
-      if (!storageAvailable) return;
-      try {
-        window.localStorage.setItem("fridge_state_v1", JSON.stringify(state));
-      } catch (e) {}
-    }
-
-    loadState();
+    // SUPABASE_URL / SUPABASE_ANON_KEY는 Vercel 환경변수로 설정되고,
+    // /api/config 서버리스 함수를 통해 런타임에 전달됩니다.
+    var supabaseClient = null;
+    var rows = [];
 
     function today() {
       var d = new Date();
@@ -588,19 +545,13 @@
       });
     }
 
-    function sortedItems() {
-      return state.items.slice().sort(function (a, b) {
-        return dDay(a.expiry) - dDay(b.expiry);
-      });
-    }
-
     function itemRow(it, isOverdue) {
-      var diff = dDay(it.expiry);
+      var diff = dDay(it.expiry_date);
       return (
         '<div class="item-row"><div class="info"><div class="name">' +
         escapeHtml(it.name) +
         '</div><div class="date">' +
-        formatDate(it.expiry) +
+        formatDate(it.expiry_date) +
         '</div></div><span class="badge ' +
         dDayClass(diff) +
         '">' +
@@ -615,10 +566,26 @@
       );
     }
 
+    function splitRows() {
+      var active = rows.filter(function (r) { return !r.consumed && !r.discarded; });
+      active.sort(function (a, b) { return dDay(a.expiry_date) - dDay(b.expiry_date); });
+      var fresh = active.filter(function (r) { return dDay(r.expiry_date) >= 0; });
+      var overdue = active.filter(function (r) { return dDay(r.expiry_date) < 0; });
+      var history = rows
+        .filter(function (r) { return r.consumed || r.discarded; })
+        .sort(function (a, b) {
+          var at = new Date(a.consumed_at || a.discarded_at).getTime();
+          var bt = new Date(b.consumed_at || b.discarded_at).getTime();
+          return bt - at;
+        });
+      return { fresh: fresh, overdue: overdue, history: history };
+    }
+
     function render() {
-      var sorted = sortedItems();
-      var fresh = sorted.filter(function (it) { return dDay(it.expiry) >= 0; });
-      var overdue = sorted.filter(function (it) { return dDay(it.expiry) < 0; });
+      var split = splitRows();
+      var fresh = split.fresh;
+      var overdue = split.overdue;
+      var histSorted = split.history;
 
       var heroHeadline = document.getElementById("heroHeadline");
       var heroList = document.getElementById("heroList");
@@ -630,7 +597,7 @@
       var historyList = document.getElementById("historyList");
       var historyCount = document.getElementById("historyCount");
 
-      if (sorted.length === 0) {
+      if (fresh.length === 0 && overdue.length === 0) {
         heroHeadline.innerHTML = "등록된 식재료가 없어요. 첫 식재료를 등록해보세요!";
         heroList.innerHTML = "";
       } else if (fresh.length === 0) {
@@ -643,7 +610,7 @@
           "오늘은 <strong>" + escapeHtml(first.name) + "</strong>" + josaEul(first.name) + " 먼저 드세요!";
         heroList.innerHTML = top
           .map(function (it) {
-            var diff = dDay(it.expiry);
+            var diff = dDay(it.expiry_date);
             return (
               '<div class="hero-row"><span class="name">' +
               escapeHtml(it.name) +
@@ -684,23 +651,98 @@
           .join("");
       }
 
-      var histSorted = state.history.slice().sort(function (a, b) {
-        return b.consumedAt - a.consumedAt;
-      });
       historyCount.textContent = histSorted.length ? " · " + histSorted.length + "건" : "";
       historyList.innerHTML = histSorted.length
         ? histSorted
             .map(function (h) {
+              var ts = h.consumed_at || h.discarded_at;
+              var action = h.consumed ? "consume" : "discard";
               return (
                 '<div class="history-row"><span>' +
                 escapeHtml(h.name) +
                 "</span><span>" +
-                formatHistoryDate(h.consumedAt, h.action) +
+                formatHistoryDate(ts, action) +
                 "</span></div>"
               );
             })
             .join("")
         : '<p class="empty-note">아직 소비 기록이 없어요.</p>';
+    }
+
+    function setupNotice() {
+      var heroHeadline = document.getElementById("heroHeadline");
+      heroHeadline.innerHTML =
+        "Supabase 설정이 필요해요.<br>Vercel 프로젝트에 SUPABASE_URL / SUPABASE_ANON_KEY 환경변수를 등록해주세요.";
+      document.getElementById("itemList").innerHTML = '<p class="empty-note">설정 후 이용할 수 있어요.</p>';
+      var form = document.getElementById("addForm");
+      Array.prototype.forEach.call(form.querySelectorAll("input, button"), function (el) {
+        el.disabled = true;
+      });
+    }
+
+    async function loadConfig() {
+      try {
+        var res = await fetch("/api/config");
+        if (!res.ok) return null;
+        var cfg = await res.json();
+        if (!cfg || !cfg.url || !cfg.anonKey) return null;
+        return cfg;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    async function ensureSession() {
+      var sessionRes = await supabaseClient.auth.getSession();
+      var session = sessionRes.data && sessionRes.data.session;
+      if (!session) {
+        var signInRes = await supabaseClient.auth.signInAnonymously();
+        if (signInRes.error) throw signInRes.error;
+      }
+    }
+
+    async function loadIngredients() {
+      var heroHeadline = document.getElementById("heroHeadline");
+      heroHeadline.textContent = "불러오는 중...";
+      try {
+        await ensureSession();
+        var res = await supabaseClient.from("ingredients").select("*");
+        if (res.error) throw res.error;
+        rows = res.data || [];
+      } catch (err) {
+        rows = [];
+        heroHeadline.textContent = "데이터를 불러오지 못했어요. 새로고침해 주세요.";
+        return;
+      }
+      render();
+    }
+
+    async function addIngredientRemote(name, expiry) {
+      var res = await supabaseClient.from("ingredients").insert({ name: name, expiry_date: expiry }).select();
+      if (res.error) {
+        alert("등록에 실패했어요: " + res.error.message);
+        return;
+      }
+      rows = rows.concat(res.data);
+      render();
+    }
+
+    async function markRow(id, isOverdue) {
+      var patch = isOverdue
+        ? { discarded: true, discarded_at: new Date().toISOString() }
+        : { consumed: true, consumed_at: new Date().toISOString() };
+      var res = await supabaseClient.from("ingredients").update(patch).eq("id", id).select();
+      if (res.error) {
+        alert("처리에 실패했어요: " + res.error.message);
+        return;
+      }
+      var updated = res.data && res.data[0];
+      if (updated) {
+        rows = rows.map(function (r) {
+          return r.id === id ? updated : r;
+        });
+      }
+      render();
     }
 
     document.getElementById("addForm").addEventListener("submit", function (e) {
@@ -709,13 +751,7 @@
       var name = form.elements["name"].value.trim();
       var expiry = form.elements["expiry"].value;
       if (!name || !expiry) return;
-      state.items.push({
-        id: "item-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
-        name: name,
-        expiry: expiry
-      });
-      saveState();
-      render();
+      addIngredientRemote(name, expiry);
       form.reset();
       form.elements["name"].focus();
     });
@@ -724,22 +760,21 @@
       var btn = e.target.closest("[data-consume]");
       if (!btn) return;
       var id = btn.getAttribute("data-consume");
-      var idx = state.items.findIndex(function (it) {
-        return it.id === id;
+      var row = rows.find(function (r) {
+        return r.id === id;
       });
-      if (idx === -1) return;
-      var consumed = state.items.splice(idx, 1)[0];
-      state.history.push({
-        id: "hist-" + Date.now(),
-        name: consumed.name,
-        consumedAt: Date.now(),
-        action: dDay(consumed.expiry) < 0 ? "discard" : "consume"
-      });
-      saveState();
-      render();
+      if (!row) return;
+      markRow(id, dDay(row.expiry_date) < 0);
     });
 
-    render();
+    loadConfig().then(function (cfg) {
+      if (!cfg) {
+        setupNotice();
+        return;
+      }
+      supabaseClient = window.supabase.createClient(cfg.url, cfg.anonKey);
+      loadIngredients();
+    });
   })();
 </script>
 </body>
