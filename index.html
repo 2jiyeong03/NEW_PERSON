@@ -718,31 +718,47 @@
     }
 
     async function addIngredientRemote(name, expiry) {
-      var res = await supabaseClient.from("ingredients").insert({ name: name, expiry_date: expiry }).select();
-      if (res.error) {
-        alert("등록에 실패했어요: " + res.error.message);
+      if (!supabaseClient) {
+        alert("아직 서버 연결이 준비되지 않았어요. 잠시 후 다시 시도해주세요.");
         return;
       }
-      rows = rows.concat(res.data);
-      render();
+      try {
+        var res = await supabaseClient.from("ingredients").insert({ name: name, expiry_date: expiry }).select();
+        if (res.error) {
+          alert("등록에 실패했어요: " + res.error.message);
+          return;
+        }
+        rows = rows.concat(res.data);
+        render();
+      } catch (err) {
+        alert("등록 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
+      }
     }
 
     async function markRow(id, isOverdue) {
-      var patch = isOverdue
-        ? { discarded: true, discarded_at: new Date().toISOString() }
-        : { consumed: true, consumed_at: new Date().toISOString() };
-      var res = await supabaseClient.from("ingredients").update(patch).eq("id", id).select();
-      if (res.error) {
-        alert("처리에 실패했어요: " + res.error.message);
+      if (!supabaseClient) {
+        alert("아직 서버 연결이 준비되지 않았어요. 잠시 후 다시 시도해주세요.");
         return;
       }
-      var updated = res.data && res.data[0];
-      if (updated) {
-        rows = rows.map(function (r) {
-          return r.id === id ? updated : r;
-        });
+      try {
+        var patch = isOverdue
+          ? { discarded: true, discarded_at: new Date().toISOString() }
+          : { consumed: true, consumed_at: new Date().toISOString() };
+        var res = await supabaseClient.from("ingredients").update(patch).eq("id", id).select();
+        if (res.error) {
+          alert("처리에 실패했어요: " + res.error.message);
+          return;
+        }
+        var updated = res.data && res.data[0];
+        if (updated) {
+          rows = rows.map(function (r) {
+            return r.id === id ? updated : r;
+          });
+        }
+        render();
+      } catch (err) {
+        alert("처리 중 오류가 발생했어요: " + (err && err.message ? err.message : err));
       }
-      render();
     }
 
     document.getElementById("addForm").addEventListener("submit", function (e) {
@@ -767,14 +783,22 @@
       markRow(id, dDay(row.expiry_date) < 0);
     });
 
-    loadConfig().then(function (cfg) {
-      if (!cfg) {
-        setupNotice();
-        return;
-      }
-      supabaseClient = window.supabase.createClient(cfg.url, cfg.anonKey);
-      loadIngredients();
-    });
+    loadConfig()
+      .then(function (cfg) {
+        if (!cfg) {
+          setupNotice();
+          return;
+        }
+        if (typeof window.supabase === "undefined") {
+          throw new Error("Supabase 라이브러리를 불러오지 못했어요 (네트워크/차단 문제일 수 있어요).");
+        }
+        supabaseClient = window.supabase.createClient(cfg.url, cfg.anonKey);
+        return loadIngredients();
+      })
+      .catch(function (err) {
+        var heroHeadline = document.getElementById("heroHeadline");
+        heroHeadline.textContent = "초기화 오류: " + (err && err.message ? err.message : err);
+      });
   })();
 </script>
 </body>
